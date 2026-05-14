@@ -9,6 +9,7 @@ TICKERS = {
     "ITUB4": "ITUB4.SA",
     "IBOV":  "^BVSP",
     "USDBRL":"BRL=X",
+    "SELIC": "LFTS11.SA", # ETF atrelado à taxa Selic
 }
 
 def run():

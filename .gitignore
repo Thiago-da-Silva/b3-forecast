@@ -1,3 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Project Data
 data/raw/
 data/processed/
 *.csv
+
+# Model Artifacts
+artifacts/
+*.pkl
+*.keras
+*.h5
+
+# Evaluation Outputs
+evaluation/predictions/
+evaluation/residuals/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo

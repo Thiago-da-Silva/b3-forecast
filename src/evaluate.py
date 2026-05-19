@@ -4,9 +4,10 @@ from pathlib import Path
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import scipy.stats
 
-PROCESSED_DIR = Path("data/processed")
-RESULTS_DIR   = Path("evaluation/predictions")
-METRICS_DIR   = Path("evaluation")
+PROJECT_ROOT  = Path(__file__).resolve().parent.parent
+PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
+RESULTS_DIR   = PROJECT_ROOT / "evaluation" / "predictions"
+METRICS_DIR   = PROJECT_ROOT / "evaluation"
 
 def descobrir_ativos():
     ativos = []

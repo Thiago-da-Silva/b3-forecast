@@ -9,9 +9,10 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout, Input
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 
-PROCESSED_DIR = Path("data/processed")
-ARTIFACTS_DIR = Path("artifacts")
-RESULTS_DIR   = Path("evaluation/predictions")
+PROJECT_ROOT  = Path(__file__).resolve().parent.parent
+PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
+ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
+RESULTS_DIR   = PROJECT_ROOT / "evaluation" / "predictions"
 
 # Hiperparâmetros base
 LOOKBACK = 30 # Tamanho da janela (dias)
@@ -83,8 +84,8 @@ def treinar(name, X_train, y_train, X_val, y_val):
     modelo = construir_modelo((X_train.shape[1], X_train.shape[2]))
     
     callbacks = [
-        EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True),
-        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=1e-5)
+        EarlyStopping(monitor='val_loss', patience=15, restore_best_weights=True, min_delta=1e-6),
+        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=1e-6, min_delta=1e-6)
     ]
     
     history = modelo.fit(

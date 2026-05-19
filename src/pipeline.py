@@ -1,4 +1,9 @@
+import sys
 from pathlib import Path
+
+# Adiciona o diretório raiz do projeto ao sys.path para permitir importações absolutas
+project_root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(project_root))
 
 # Importando todas as etapas do nosso projeto
 import src.collect as collect

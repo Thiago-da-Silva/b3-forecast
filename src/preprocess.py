@@ -3,8 +3,9 @@ from pathlib import Path
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 
-RAW_DIR       = Path("data/raw")
-PROCESSED_DIR = Path("data/processed")
+PROJECT_ROOT  = Path(__file__).resolve().parent.parent
+RAW_DIR       = PROJECT_ROOT / "data" / "raw"
+PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 EXOGENOUS = ["IBOV", "USDBRL", "SELIC"]
 
 def find_stocks():
@@ -63,16 +64,28 @@ def process(name):
     val   = df.iloc[int(n * 0.70):int(n * 0.85)]
     test  = df.iloc[int(n * 0.85):]
 
+    features = [col for col in df.columns if col != "log_return"]
+
     # --- Normalização ---
     scaler       = MinMaxScaler()
-    train_scaled = scaler.fit_transform(train)
-    val_scaled   = scaler.transform(val)
-    test_scaled  = scaler.transform(test)
+    train_scaled = scaler.fit_transform(train[features])
+    val_scaled   = scaler.transform(val[features])
+    test_scaled  = scaler.transform(test[features])
 
     # --- Reconstrói DataFrames com os nomes de coluna ---
-    train_df = pd.DataFrame(train_scaled, index=train.index, columns=df.columns)
-    val_df   = pd.DataFrame(val_scaled,   index=val.index,   columns=df.columns)
-    test_df  = pd.DataFrame(test_scaled,  index=test.index,  columns=df.columns)
+    train_df = pd.DataFrame(train_scaled, index=train.index, columns=features)
+    val_df   = pd.DataFrame(val_scaled,   index=val.index,   columns=features)
+    test_df  = pd.DataFrame(test_scaled,  index=test.index,  columns=features)
+
+    # Re-adiciona o log_return sem escala
+    train_df["log_return"] = train["log_return"].values
+    val_df["log_return"]   = val["log_return"].values
+    test_df["log_return"]  = test["log_return"].values
+
+    # Garante a ordem original das colunas
+    train_df = train_df[df.columns]
+    val_df   = val_df[df.columns]
+    test_df  = test_df[df.columns]
 
     processed = pd.concat([train_df, val_df, test_df])
     processed.to_csv(PROCESSED_DIR / f"{name}_processed.csv")

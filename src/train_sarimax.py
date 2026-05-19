@@ -5,9 +5,10 @@ import pickle
 from pmdarima import auto_arima
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
-PROCESSED_DIR = Path("data/processed")
-ARTIFACTS_DIR = Path("artifacts")
-RESULTS_DIR   = Path("evaluation/predictions")
+PROJECT_ROOT  = Path(__file__).resolve().parent.parent
+PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
+ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
+RESULTS_DIR   = PROJECT_ROOT / "evaluation" / "predictions"
 
 EXOGENOUS_COLS = ["ibov", "usdbrl", "selic"]
 TARGET_COL     = "log_return"

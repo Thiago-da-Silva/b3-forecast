@@ -67,10 +67,16 @@ def carregar_e_formatar(name):
     val_df   = df.iloc[int(n * 0.70):int(n * 0.85)]
     test_df  = df.iloc[int(n * 0.85):]
 
-    # Criação de sequências
+    # Criação de sequências.
+    # Val e test são prefixados com os últimos LOOKBACK dias do split anterior:
+    # evita descartar os primeiros LOOKBACK dias de avaliação e preserva a
+    # continuidade temporal real entre os splits.
+    val_com_prefixo  = pd.concat([train_df.iloc[-LOOKBACK:], val_df])
+    test_com_prefixo = pd.concat([val_df.iloc[-LOOKBACK:],  test_df])
+
     X_train, y_train = criar_sequencias(train_df, target_idx, LOOKBACK)
-    X_val, y_val     = criar_sequencias(val_df, target_idx, LOOKBACK)
-    X_test, y_test   = criar_sequencias(test_df, target_idx, LOOKBACK)
+    X_val, y_val     = criar_sequencias(val_com_prefixo, target_idx, LOOKBACK)
+    X_test, y_test   = criar_sequencias(test_com_prefixo, target_idx, LOOKBACK)
 
     return (X_train, y_train), (X_val, y_val), (X_test, y_test), (train_df, val_df, test_df)
 
@@ -127,12 +133,12 @@ def salvar_previsoes(name, modelo, X_train, X_val, X_test, dfs):
     pred_val   = modelo.predict(X_val, verbose=0).flatten()
     pred_test  = modelo.predict(X_test, verbose=0).flatten()
     
-    # As previsões são mais curtas que os DataFrames originais devido ao lookback.
-    # Precisamos pegar os valores "reais" exatos das datas que sobraram.
+    # Treino perde os primeiros LOOKBACK dias (não há split anterior para prefixar).
+    # Val e test foram prefixados, então cobrem todas as suas datas.
     real_train = train_df.iloc[LOOKBACK:][TARGET_COL].values
-    real_val   = val_df.iloc[LOOKBACK:][TARGET_COL].values
-    real_test  = test_df.iloc[LOOKBACK:][TARGET_COL].values
-    
+    real_val   = val_df[TARGET_COL].values
+    real_test  = test_df[TARGET_COL].values
+
     df_result = pd.DataFrame({
         "real":    np.concatenate([real_train, real_val, real_test]),
         "lstm":    np.concatenate([pred_train, pred_val, pred_test]),
@@ -141,11 +147,9 @@ def salvar_previsoes(name, modelo, X_train, X_val, X_test, dfs):
                     ["test"]  * len(real_test))
     })
 
-    # Tentar manter as datas, se possível.
-    # Concatenação das datas deslocadas pelo lookback
     datas_train = train_df.index[LOOKBACK:]
-    datas_val   = val_df.index[LOOKBACK:]
-    datas_test  = test_df.index[LOOKBACK:]
+    datas_val   = val_df.index
+    datas_test  = test_df.index
     df_result.index = datas_train.append(datas_val).append(datas_test)
 
     path = RESULTS_DIR / f"{name}_lstm_predictions.csv"

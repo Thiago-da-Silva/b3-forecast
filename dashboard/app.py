@@ -162,7 +162,8 @@ if not df_metricas.empty:
             df_metricas_view.style.format({
                 "MAE": "{:.5f}",
                 "RMSE": "{:.5f}",
-                "MAPE": "{:.2f}%",
+                "sMAPE": "{:.2f}%",
+                "Theil_U": "{:.4f}",
                 "R2": "{:.4f}",
                 "DM_Stat_vs_Base": "{:.4f}",
                 "DM_PValue": "{:.5f}"

@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-import scipy.stats
+from statsmodels.regression.linear_model import OLS
 
 PROJECT_ROOT  = Path(__file__).resolve().parent.parent
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
@@ -18,42 +18,50 @@ def descobrir_ativos():
 
 def diebold_mariano_test(y_true, y_pred1, y_pred2):
     """
-    Implementação simples do Teste Diebold-Mariano (DM test).
+    Teste Diebold-Mariano (DM test) com variância robusta a
+    autocorrelação e heterocedasticidade (HAC / Newey-West).
     Compara as perdas (erros quadráticos) de dois modelos.
     Retorna o DM-stat e o p-valor.
     """
     e1 = y_true - y_pred1
     e2 = y_true - y_pred2
-    
+
     # Função de perda: erro quadrático
     d = (e1**2) - (e2**2)
-    
-    mean_d = np.mean(d)
-    var_d  = np.var(d, ddof=1)
-    
-    # Evita divisão por zero se ambos os modelos preverem exatamente igual
-    if var_d == 0:
-        return 0.0, 1.0
-        
     n = len(d)
-    dm_stat = mean_d / np.sqrt(var_d / n)
-    
-    # P-valor (teste bicaudal)
-    p_value = 2 * (1 - scipy.stats.norm.cdf(abs(dm_stat)))
-    
+
+    # Evita divisão por zero se ambos os modelos preverem exatamente igual
+    if np.var(d, ddof=1) == 0:
+        return 0.0, 1.0
+
+    # Regressão de d sobre uma constante com erros-padrão HAC (Newey-West).
+    # A estatística-t do intercepto é exatamente a estatística DM corrigida.
+    res = OLS(d, np.ones(n)).fit(
+        cov_type="HAC",
+        cov_kwds={"maxlags": int(n ** 0.25)}
+    )
+    dm_stat = res.tvalues[0]
+    p_value = res.pvalues[0]
+
     return dm_stat, p_value
 
 def calculate_metrics(y_true, y_pred):
     mae = mean_absolute_error(y_true, y_pred)
     rmse = np.sqrt(mean_squared_error(y_true, y_pred))
-    
-    # Tratamento para MAPE (evita divisão por zero/valores muito pequenos)
-    epsilon = 1e-8
-    mape = np.mean(np.abs((y_true - y_pred) / (np.abs(y_true) + epsilon))) * 100
-    
+
+    # sMAPE — simétrico e bem-definido para valores próximos de zero (log_return)
+    smape = np.mean(
+        2 * np.abs(y_true - y_pred) / (np.abs(y_true) + np.abs(y_pred) + 1e-8)
+    ) * 100
+
+    # Theil's U — desempenho relativo ao naive (prever retorno zero).
+    # U < 1 supera o naive, U = 1 é equivalente, U > 1 é pior.
+    denom = np.sqrt(np.mean(y_true ** 2))
+    theil_u = np.sqrt(np.mean((y_true - y_pred) ** 2)) / denom if denom != 0 else np.nan
+
     r2 = r2_score(y_true, y_pred)
-    
-    return {"MAE": mae, "RMSE": rmse, "MAPE": mape, "R2": r2}
+
+    return {"MAE": mae, "RMSE": rmse, "sMAPE": smape, "Theil_U": theil_u, "R2": r2}
 
 def run():
     ativos = descobrir_ativos()
@@ -66,22 +74,25 @@ def run():
         
         # O arquivo hybrid_predictions.csv contém as previsões reais, sarimax e hybrid
         # O arquivo lstm_predictions.csv contém real e lstm
-        df_hybrid = pd.read_csv(RESULTS_DIR / f"{name}_hybrid_predictions.csv")
-        df_lstm   = pd.read_csv(RESULTS_DIR / f"{name}_lstm_predictions.csv")
-        
+        df_hybrid = pd.read_csv(
+            RESULTS_DIR / f"{name}_hybrid_predictions.csv",
+            index_col="Date", parse_dates=True
+        )
+        df_lstm = pd.read_csv(
+            RESULTS_DIR / f"{name}_lstm_predictions.csv",
+            index_col="Date", parse_dates=True
+        )
+
         # Filtra apenas o conjunto de TESTE para avaliação rigorosa
         test_hybrid = df_hybrid[df_hybrid["split"] == "test"]
         test_lstm   = df_lstm[df_lstm["split"] == "test"]
-        
-        # Para garantir alinhamento (caso as datas sejam as mesmas), mas sabemos que as datas batem
-        y_true  = test_hybrid["real"].values
-        pred_sarimax = test_hybrid["sarimax"].values
-        pred_hybrid  = test_hybrid["hybrid"].values
-        
-        # LSTM base pode ter tamanho levemente diferente se não cortamos igual, 
-        # mas as datas de teste devem bater. Vamos alinhar para segurança caso o usuário inspecione.
-        # Aqui assumimos que o len do teste bate perfeitamente
-        pred_lstm = test_lstm["lstm"].values[-len(y_true):] # Alinha pelo final (últimos dias)
+
+        # Interseção de datas garante que só dias presentes em ambos são comparados
+        datas_comuns = test_hybrid.index.intersection(test_lstm.index)
+        y_true       = test_hybrid.loc[datas_comuns, "real"].values
+        pred_sarimax = test_hybrid.loc[datas_comuns, "sarimax"].values
+        pred_hybrid  = test_hybrid.loc[datas_comuns, "hybrid"].values
+        pred_lstm    = test_lstm.loc[datas_comuns, "lstm"].values
 
         # 1. Métricas Base
         metrics_sarimax = calculate_metrics(y_true, pred_sarimax)
@@ -102,7 +113,8 @@ def run():
                 "Modelo": modelo,
                 "MAE": metricas["MAE"],
                 "RMSE": metricas["RMSE"],
-                "MAPE": metricas["MAPE"],
+                "sMAPE": metricas["sMAPE"],
+                "Theil_U": metricas["Theil_U"],
                 "R2": metricas["R2"],
                 "DM_Stat_vs_Base": dm_stat,
                 "DM_PValue": p_value

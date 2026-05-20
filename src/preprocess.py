@@ -45,18 +45,24 @@ def process(name):
 
     # --- Índice de Força Relativa / Relative Strength Index ---
     delta        = df["Close"].diff()
-    gain         = delta.clip(lower=0).rolling(14).mean()
-    loss         = (-delta.clip(upper=0)).rolling(14).mean()
+    gain         = delta.clip(lower=0).ewm(com=13, adjust=False).mean()
+    loss         = (-delta.clip(upper=0)).ewm(com=13, adjust=False).mean()
     df["rsi"]    = 100 - (100 / (1 + gain / loss))
 
-    # --- Average True Range ---
-    df["atr"]    = (df["High"] - df["Low"]).rolling(14).mean()
-    df["lag_1"]  = df["Close"].shift(1)
-    df["lag_5"]  = df["Close"].shift(5)
-    df["lag_21"] = df["Close"].shift(21)
+    # --- Average True Range (True Range com correção de gap) ---
+    prev_close   = df["Close"].shift(1)
+    true_range   = pd.concat([
+        df["High"] - df["Low"],
+        (df["High"] - prev_close).abs(),
+        (df["Low"]  - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    df["atr"]    = true_range.ewm(com=13, adjust=False).mean()
+    df["lag_1"]  = df["log_return"].shift(1)
+    df["lag_5"]  = df["log_return"].shift(5)
+    df["lag_21"] = df["log_return"].shift(21)
 
-    # --- Remove linhas com NaN (devido a indicadores) ---
-    df = df.dropna()
+    # --- Remove linhas com NaN/inf (devido a indicadores) ---
+    df = df.replace([np.inf, -np.inf], np.nan).dropna()
 
     # --- Split cronológico 70/15/15 ---
     n     = len(df)

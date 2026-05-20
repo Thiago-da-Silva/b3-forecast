@@ -165,6 +165,7 @@ if not df_metricas.empty:
                 "sMAPE": "{:.2f}%",
                 "Theil_U": "{:.4f}",
                 "R2": "{:.4f}",
+                "Hit_Rate": "{:.2f}%",
                 "DM_Stat_vs_Base": "{:.4f}",
                 "DM_PValue": "{:.5f}"
             }),

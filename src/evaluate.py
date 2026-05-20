@@ -61,7 +61,13 @@ def calculate_metrics(y_true, y_pred):
 
     r2 = r2_score(y_true, y_pred)
 
-    return {"MAE": mae, "RMSE": rmse, "sMAPE": smape, "Theil_U": theil_u, "R2": r2}
+    # Hit Rate direcional — % de dias em que o modelo acertou a direção do movimento
+    hit_rate = np.mean(np.sign(y_true) == np.sign(y_pred)) * 100
+
+    return {
+        "MAE": mae, "RMSE": rmse, "sMAPE": smape,
+        "Theil_U": theil_u, "R2": r2, "Hit_Rate": hit_rate
+    }
 
 def run():
     ativos = descobrir_ativos()
@@ -116,6 +122,7 @@ def run():
                 "sMAPE": metricas["sMAPE"],
                 "Theil_U": metricas["Theil_U"],
                 "R2": metricas["R2"],
+                "Hit_Rate": metricas["Hit_Rate"],
                 "DM_Stat_vs_Base": dm_stat,
                 "DM_PValue": p_value
             })

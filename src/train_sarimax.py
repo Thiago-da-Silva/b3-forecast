@@ -39,11 +39,10 @@ def separar_xy(split):
     exog = split[EXOGENOUS_COLS]
     return y, exog
 
-def treinar(name, train, val):
+def treinar(name, train):
     print(f"    Rodando auto_arima para {name} — pode demorar alguns minutos...")
 
     y_train, exog_train = separar_xy(train)
-    y_val,   exog_val   = separar_xy(val)
 
     modelo = auto_arima(
         y                    = y_train,
@@ -57,13 +56,6 @@ def treinar(name, train, val):
     )
 
     print(f"    Melhor ordem encontrada: {modelo.order} sazonal: {modelo.seasonal_order}")
-
-    # valida no conjunto de validação
-    y_pred_val = modelo.predict(n_periods=len(val), X=exog_val)
-    mae  = mean_absolute_error(y_val, y_pred_val)
-    rmse = np.sqrt(mean_squared_error(y_val, y_pred_val))
-    print(f"    Validação — MAE: {mae:.5f}  RMSE: {rmse:.5f}")
-
     return modelo
 
 def salvar_modelo(modelo, name):
@@ -83,11 +75,26 @@ def salvar_previsoes(name, train, val, test, modelo):
     # previsões in-sample (treino) — o modelo já viu esses dados
     pred_train = modelo.predict_in_sample(X=exog_train)
 
-    # previsões out-of-sample (val e test) — dados que o modelo não viu
-    # precisa atualizar o modelo com a validação antes de prever o teste
-    pred_val  = modelo.predict(n_periods=len(val),  X=exog_val)
-    modelo.update(y_val, X=exog_val)
-    pred_test = modelo.predict(n_periods=len(test), X=exog_test)
+    # walk-forward one-step-ahead na validação:
+    # prevê 1 dia, observa o real, atualiza o modelo e avança
+    pred_val = []
+    for i in range(len(val)):
+        yhat = modelo.predict(n_periods=1, X=exog_val.iloc[[i]])
+        pred_val.append(float(np.asarray(yhat)[0]))
+        modelo.update([y_val.iloc[i]], X=exog_val.iloc[[i]])
+    pred_val = np.array(pred_val)
+
+    mae_val  = mean_absolute_error(y_val, pred_val)
+    rmse_val = np.sqrt(mean_squared_error(y_val, pred_val))
+    print(f"    Validação (walk-forward) — MAE: {mae_val:.5f}  RMSE: {rmse_val:.5f}")
+
+    # walk-forward one-step-ahead no teste
+    pred_test = []
+    for i in range(len(test)):
+        yhat = modelo.predict(n_periods=1, X=exog_test.iloc[[i]])
+        pred_test.append(float(np.asarray(yhat)[0]))
+        modelo.update([y_test.iloc[i]], X=exog_test.iloc[[i]])
+    pred_test = np.array(pred_test)
 
     df_result = pd.DataFrame({
         "real":    pd.concat([y_train, y_val, y_test]),
@@ -108,7 +115,7 @@ def run():
     for name in ativos:
         print(f"\n  Treinando SARIMAX — {name}...")
         train, val, test = carregar_splits(name)
-        modelo           = treinar(name, train, val)
+        modelo           = treinar(name, train)
         salvar_modelo(modelo, name)
         salvar_previsoes(name, train, val, test, modelo)
         print(f"  Concluído: {name}")

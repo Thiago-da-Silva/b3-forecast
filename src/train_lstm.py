@@ -1,13 +1,23 @@
+import os
+import random
 import pandas as pd
 import numpy as np
 import json
 from pathlib import Path
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
+# Seeds determinísticos — devem ser fixados antes de importar/usar o TensorFlow
+SEED = 42
+random.seed(SEED)
+np.random.seed(SEED)
+os.environ["PYTHONHASHSEED"] = str(SEED)
+
 import tensorflow as tf
+tf.random.set_seed(SEED)
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout, Input
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
+from tensorflow.keras.optimizers import Adam
 
 PROJECT_ROOT  = Path(__file__).resolve().parent.parent
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
@@ -16,7 +26,7 @@ RESULTS_DIR   = PROJECT_ROOT / "evaluation" / "predictions"
 
 # Hiperparâmetros base
 LOOKBACK = 30 # Tamanho da janela (dias)
-EPOCHS = 50
+EPOCHS = 300
 BATCH_SIZE = 32
 
 TARGET_COL = "log_return"
@@ -75,7 +85,7 @@ def construir_modelo(input_shape):
         Dense(1) # Saída é o log_return
     ])
     
-    modelo.compile(optimizer='adam', loss='mse', metrics=['mae'])
+    modelo.compile(optimizer=Adam(learning_rate=1e-4), loss='mse', metrics=['mae'])
     return modelo
 
 def treinar(name, X_train, y_train, X_val, y_val):
@@ -84,10 +94,10 @@ def treinar(name, X_train, y_train, X_val, y_val):
     modelo = construir_modelo((X_train.shape[1], X_train.shape[2]))
     
     callbacks = [
-        EarlyStopping(monitor='val_loss', patience=15, restore_best_weights=True, min_delta=1e-6),
-        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=1e-6, min_delta=1e-6)
+        EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True, min_delta=1e-6),
+        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=7, min_lr=1e-6, min_delta=1e-6)
     ]
-    
+
     history = modelo.fit(
         X_train, y_train,
         validation_data=(X_val, y_val),

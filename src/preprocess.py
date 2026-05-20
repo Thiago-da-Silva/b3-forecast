@@ -1,11 +1,13 @@
 import pandas as pd
 from pathlib import Path
 import numpy as np
-from sklearn.preprocessing import MinMaxScaler
+import pickle
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 PROJECT_ROOT  = Path(__file__).resolve().parent.parent
 RAW_DIR       = PROJECT_ROOT / "data" / "raw"
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
+ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
 EXOGENOUS = ["IBOV", "USDBRL", "SELIC"]
 
 def find_stocks():
@@ -72,7 +74,7 @@ def process(name):
 
     features = [col for col in df.columns if col != "log_return"]
 
-    # --- Normalização ---
+    # --- Normalização das features (MinMax, ajustado só no treino) ---
     scaler       = MinMaxScaler()
     train_scaled = scaler.fit_transform(train[features])
     val_scaled   = scaler.transform(val[features])
@@ -83,10 +85,11 @@ def process(name):
     val_df   = pd.DataFrame(val_scaled,   index=val.index,   columns=features)
     test_df  = pd.DataFrame(test_scaled,  index=test.index,  columns=features)
 
-    # Re-adiciona o log_return sem escala
-    train_df["log_return"] = train["log_return"].values
-    val_df["log_return"]   = val["log_return"].values
-    test_df["log_return"]  = test["log_return"].values
+    # --- Normalização do alvo (StandardScaler preserva o sinal do retorno) ---
+    ret_scaler = StandardScaler()
+    train_df["log_return"] = ret_scaler.fit_transform(train[["log_return"]]).ravel()
+    val_df["log_return"]   = ret_scaler.transform(val[["log_return"]]).ravel()
+    test_df["log_return"]  = ret_scaler.transform(test[["log_return"]]).ravel()
 
     # Garante a ordem original das colunas
     train_df = train_df[df.columns]
@@ -96,5 +99,13 @@ def process(name):
     processed = pd.concat([train_df, val_df, test_df])
     processed.to_csv(PROCESSED_DIR / f"{name}_processed.csv")
     print(f"    Salvo: {name}_processed.csv ({len(processed)} linhas)")
+
+    # --- Serializa scalers para inverse_transform / reuso futuro ---
+    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    with open(ARTIFACTS_DIR / f"{name}_scaler.pkl", "wb") as f:
+        pickle.dump(scaler, f)
+    with open(ARTIFACTS_DIR / f"{name}_ret_scaler.pkl", "wb") as f:
+        pickle.dump(ret_scaler, f)
+    print(f"    Scalers salvos: {name}_scaler.pkl, {name}_ret_scaler.pkl")
 
 

@@ -49,11 +49,11 @@ Coleta de dados   →  yfinance
 Manipulação       →  pandas, numpy
 Modelo estatístico →  pmdarima (auto_arima)
 Modelo deep learning → TensorFlow / Keras
-Tuning de hiperparâmetros → Optuna
+Tuning de hiperparâmetros → Optuna (planejado — ainda não implementado)
 Pré-processamento / métricas → scikit-learn
 Visualização      →  Plotly Express
 Dashboard         →  Streamlit
-Avaliação estatística → arch (teste Diebold-Mariano)
+Avaliação estatística → statsmodels (teste Diebold-Mariano com correção HAC)
 ```
 
 ---
@@ -68,7 +68,8 @@ b3forecast/
 │   ├── collect.py                     # Etapa 1: coleta de dados via yfinance
 │   ├── preprocess.py                  # Etapa 2: limpeza, features, normalização
 │   ├── train_sarimax.py               # Etapa 3: treinamento e serialização do SARIMAX
-│   ├── train_lstm.py                  # Etapa 4: arquitetura, tuning e treinamento do LSTM
+│   ├── train_lstm.py                  # Etapa 4: arquitetura e treinamento do LSTM
+│   ├── config.py                      # Constantes compartilhadas (split, lookback, etc.)
 │   ├── train_hybrid.py                # Etapa 5: modelo híbrido (resíduo SARIMAX → LSTM)
 │   └── evaluate.py                    # Etapa 6: métricas, Diebold-Mariano, exportação
 │
@@ -86,40 +87,37 @@ b3forecast/
 │       ├── VALE3_processed.csv
 │       └── ITUB4_processed.csv
 │
-├── artifacts/                         # Gerado pelas Etapas 3, 4 e 5
-│   ├── PETR4_sarimax.pkl             # Modelo SARIMAX serializado — Petrobras
-│   ├── VALE3_sarimax.pkl
-│   ├── ITUB4_sarimax.pkl
-│   ├── PETR4_lstm.keras              # Pesos da rede LSTM treinada — Petrobras
-│   ├── VALE3_lstm.keras
-│   ├── ITUB4_lstm.keras
-│   └── lstm_best_params.json         # Melhores hiperparâmetros encontrados pelo Optuna
+├── artifacts/                         # Gerado pelas Etapas 2, 3, 4 e 5
+│   ├── <ativo>_sarimax.pkl          # Modelo SARIMAX serializado
+│   ├── <ativo>_lstm.keras           # Rede LSTM treinada
+│   ├── <ativo>_hybrid_lstm.keras    # LSTM treinado sobre os resíduos do SARIMAX
+│   ├── <ativo>_scaler.pkl           # StandardScaler das features (Etapa 2)
+│   ├── <ativo>_ret_scaler.pkl       # StandardScaler do alvo log_return (Etapa 2)
+│   └── lstm_params.json             # Hiperparâmetros base do LSTM
 │
 ├── evaluation/                        # Gerado pela Etapa 6
 │   ├── metrics.csv                    # Tabela consolidada: modelo × ativo × métrica
-│   ├── predictions/
-│   │   ├── PETR4_predictions.csv     # Colunas: data, real, sarimax, lstm, hybrid
-│   │   ├── VALE3_predictions.csv
-│   │   └── ITUB4_predictions.csv
+│   ├── predictions/                  # um CSV por modelo e ativo
+│   │   ├── <ativo>_sarimax_predictions.csv  # data, real, sarimax, split
+│   │   ├── <ativo>_lstm_predictions.csv     # data, real, lstm, split
+│   │   └── <ativo>_hybrid_predictions.csv   # data, real, sarimax, hybrid, split
 │   └── residuals/
 │       ├── PETR4_residuals.csv        # Resíduos por modelo — input do dashboard
 │       ├── VALE3_residuals.csv
 │       └── ITUB4_residuals.csv
 │
 ├── dashboard/
-│   ├── app.py                         # Entrada principal do Streamlit
-│   └── pages/
-│       ├── 01_serie_temporal.py       # Gráfico real vs. previsto por ativo e modelo
-│       ├── 02_metricas.py             # Tabela comparativa de métricas
-│       ├── 03_erro_temporal.py        # Evolução do RMSE ao longo do período de teste
-│       └── 04_residuos.py             # Histograma e Q-Q plot dos resíduos
+│   └── app.py                         # Dashboard Streamlit (página única):
+│                                      # série temporal + tabela de métricas
 │
 ├── requirements.txt                   # Dependências do projeto
+├── .python-version                    # Versão do Python (3.13)
 └── README.md                          # Este arquivo
 ```
 
 > **Como rodar:** `python src/pipeline.py`
-> O pipeline verifica automaticamente quais etapas já foram concluídas e retoma de onde parou.
+> O pipeline executa as 6 etapas em sequência. Reexecutar refaz todas as etapas
+> (tornar o pipeline idempotente é uma melhoria planejada).
 
 ---
 
@@ -157,7 +155,7 @@ b3forecast/
 - Arquitetura: camadas LSTM empilhadas com `Dropout` entre elas
 - Hiperparâmetros principais: tamanho da janela de lookback (30/60/90 dias), unidades por camada, taxa de dropout
 - Callbacks: `EarlyStopping` e `ReduceLROnPlateau`
-- Normalização com `MinMaxScaler` do scikit-learn
+- Normalização com `StandardScaler` (features e alvo), ajustado apenas no treino
 
 #### Modelo Híbrido *(sugestão)*
 - Etapa 1: SARIMAX captura a componente linear/tendência
@@ -166,11 +164,12 @@ b3forecast/
 
 ### Fase 4 — Treinamento e Validação
 
-- Estratégia: **Walk-forward validation** (janela expansível)
-  - Treinamento até o mês T → avaliação no mês T+1 → desliza e repete
-  - Simula o uso real do modelo em produção e evita *data leakage*
-- Tuning de hiperparâmetros do LSTM com **Optuna** (otimização bayesiana)
-  - Mais eficiente que GridSearch manual para espaços de busca contínuos
+- **SARIMAX:** validação *walk-forward* one-step-ahead — prevê 1 dia, observa o
+  valor real, atualiza o modelo e avança, em validação e teste.
+- **LSTM / Híbrido:** split temporal fixo 70/15/15 com `EarlyStopping` e
+  `ReduceLROnPlateau`. (*Walk-forward* para o LSTM é uma melhoria planejada.)
+- Tuning de hiperparâmetros com **Optuna**: **planejado** — atualmente os
+  hiperparâmetros do LSTM são fixos (definidos em `src/config.py`).
 
 ### Fase 5 — Avaliação Comparativa
 
@@ -180,71 +179,54 @@ Métricas computadas por modelo e por ativo:
 |---------|-----------|
 | MAE | Erro absoluto médio |
 | RMSE | Raiz do erro quadrático médio |
-| MAPE | Erro percentual absoluto médio |
+| sMAPE | Erro percentual absoluto simétrico (bem-definido perto de zero) |
+| Theil's U | Desempenho relativo ao modelo ingênuo (U < 1 supera o naive) |
+| Hit Rate | Percentual de acertos na direção do movimento |
 | R² | Coeficiente de determinação |
-| Diebold-Mariano | Teste estatístico de significância entre modelos |
+| Diebold-Mariano | Teste de significância entre modelos (variância HAC) |
 
 > O **teste Diebold-Mariano** verifica formalmente se a diferença de desempenho entre dois modelos é estatisticamente significativa — evitando conclusões baseadas em variância amostral.
 
 ### Fase 6 — Exportação de Resultados
 
-- `evaluation/predictions/<ativo>_predictions.csv` — previsões + valores reais por data
+- `evaluation/predictions/<ativo>_<modelo>_predictions.csv` — previsões + valores reais por data
 - `evaluation/metrics.csv` — tabela consolidada de métricas por modelo e ativo
 - `evaluation/residuals/` — resíduos por modelo para análise no dashboard
 
 ### Como o pipeline orquestra tudo
 
-Cada etapa implementa uma função `run(ticker)` e o orquestrador `pipeline.py` as chama em sequência, verificando se o arquivo de saída esperado já existe antes de executar:
+Cada etapa expõe uma função `run()` (sem argumentos) que processa os três ativos
+internamente. O orquestrador `src/pipeline.py` as chama em sequência:
 
 ```python
-# src/pipeline.py
-from pathlib import Path
-import collect, preprocess, train_sarimax, train_lstm, train_hybrid, evaluate
-
-TICKERS = ["PETR4", "VALE3", "ITUB4"]
+# src/pipeline.py (resumo)
+import src.collect as collect
+import src.preprocess as preprocess
+import src.train_sarimax as train_sarimax
+import src.train_lstm as train_lstm
+import src.train_hybrid as train_hybrid
+import src.evaluate as evaluate
 
 def run():
-    for ticker in TICKERS:
-        if not Path(f"data/raw/{ticker}_raw.csv").exists():
-            print(f"[1/6] Coletando {ticker}...")
-            collect.run(ticker)
-
-        if not Path(f"data/processed/{ticker}_processed.csv").exists():
-            print(f"[2/6] Pré-processando {ticker}...")
-            preprocess.run(ticker)
-
-        if not Path(f"artifacts/{ticker}_sarimax.pkl").exists():
-            print(f"[3/6] Treinando SARIMAX — {ticker}...")
-            train_sarimax.run(ticker)
-
-        if not Path(f"artifacts/{ticker}_lstm.keras").exists():
-            print(f"[4/6] Treinando LSTM — {ticker}...")
-            train_lstm.run(ticker)
-
-        if not Path(f"evaluation/predictions/{ticker}_predictions.csv").exists():
-            print(f"[5/6] Rodando modelo híbrido — {ticker}...")
-            train_hybrid.run(ticker)
-
-    if not Path("evaluation/metrics.csv").exists():
-        print("[6/6] Avaliando modelos...")
-        evaluate.run()
-
-    print("Pipeline concluído. Rode: streamlit run dashboard/app.py")
-
-if __name__ == "__main__":
-    run()
+    collect.run()        # [1/6] coleta (yfinance + BCB)
+    preprocess.run()     # [2/6] features + normalização
+    train_sarimax.run()  # [3/6] SARIMAX (baseline, walk-forward)
+    train_lstm.run()     # [4/6] LSTM
+    train_hybrid.run()   # [5/6] híbrido (LSTM sobre resíduos do SARIMAX)
+    evaluate.run()       # [6/6] métricas + Diebold-Mariano
 ```
 
-> **Vantagem:** se o processo travar (erro de rede, treino interrompido), basta rodar `python src/pipeline.py` novamente — as etapas já concluídas são puladas automaticamente.
+> **Atenção:** atualmente o pipeline reexecuta **todas** as etapas a cada chamada.
+> Pular as já concluídas (idempotência) é uma melhoria planejada.
 
 ### Fase 7 — Dashboard Python (Streamlit)
 
 Painéis do dashboard:
 
-1. **Série temporal real vs. prevista** — seletor de ativo e modelo, gráfico interativo Plotly
-2. **Tabela comparativa de métricas** — SARIMAX vs. LSTM vs. Híbrido por ativo
-3. **Erro por janela temporal** — evolução do RMSE ao longo do período de teste
-4. **Distribuição dos resíduos** — histograma e Q-Q plot por modelo
+1. **Série temporal real vs. prevista** — seletor de ativo e modelo, gráfico interativo Plotly ✅
+2. **Tabela comparativa de métricas** — SARIMAX vs. LSTM vs. Híbrido por ativo ✅
+3. **Erro por janela temporal** — evolução do RMSE ao longo do período de teste 🔜 (planejado)
+4. **Distribuição dos resíduos** — histograma e Q-Q plot por modelo 🔜 (planejado)
 
 Deploy gratuito disponível via **Streamlit Cloud**.
 
@@ -275,18 +257,21 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import numpy as np
 
 def evaluate(y_true, y_pred):
-    mae  = mean_absolute_error(y_true, y_pred)
-    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
-    mape = np.mean(np.abs((y_true - y_pred) / y_true)) * 100
-    r2   = r2_score(y_true, y_pred)
-    return {"MAE": mae, "RMSE": rmse, "MAPE": mape, "R2": r2}
+    mae   = mean_absolute_error(y_true, y_pred)
+    rmse  = np.sqrt(mean_squared_error(y_true, y_pred))
+    # sMAPE: simétrico e bem-definido para valores próximos de zero
+    smape = np.mean(2 * np.abs(y_true - y_pred) /
+                    (np.abs(y_true) + np.abs(y_pred) + 1e-8)) * 100
+    r2    = r2_score(y_true, y_pred)
+    return {"MAE": mae, "RMSE": rmse, "sMAPE": smape, "R2": r2}
 ```
 
-Teste Diebold-Mariano via pacote `arch`:
+Teste Diebold-Mariano com variância robusta (HAC / Newey-West) via `statsmodels`:
 
 ```python
-from arch.unitroot.cointegration import engle_granger
-# ou via statsmodels / implementação manual do DM test
+from statsmodels.regression.linear_model import OLS
+# regride o diferencial de perda (d) sobre uma constante com cov_type="HAC";
+# a estatística-t do intercepto é a estatística DM corrigida
 ```
 
 ---

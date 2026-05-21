@@ -1,3 +1,4 @@
+import pickle
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -5,7 +6,9 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from statsmodels.regression.linear_model import OLS
 
 PROJECT_ROOT  = Path(__file__).resolve().parent.parent
+RAW_DIR       = PROJECT_ROOT / "data" / "raw"
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
+ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
 RESULTS_DIR   = PROJECT_ROOT / "evaluation" / "predictions"
 METRICS_DIR   = PROJECT_ROOT / "evaluation"
 
@@ -69,6 +72,34 @@ def calculate_metrics(y_true, y_pred):
         "Theil_U": theil_u, "R2": r2, "Hit_Rate": hit_rate
     }
 
+def metricas_em_reais(name, datas, preds_por_modelo):
+    """Reconstrói o preço (R$) a partir do retorno previsto e calcula métricas.
+
+    O alvo está em retorno log padronizado; o ret_scaler salvo na Etapa 2 desfaz
+    a padronização e o fechamento real do dia anterior reconstrói o preço:
+        preco_previsto[t] = close_real[t-1] * exp(log_return_previsto[t])
+    """
+    raw   = pd.read_csv(RAW_DIR / f"{name}_raw.csv", index_col="Date", parse_dates=True)
+    close = raw["Close"]
+    real_price = close.reindex(datas).values
+    prev_close = close.shift(1).reindex(datas).values
+
+    with open(ARTIFACTS_DIR / f"{name}_ret_scaler.pkl", "rb") as f:
+        ret_scaler = pickle.load(f)
+
+    resultado = {}
+    for modelo, pred_z in preds_por_modelo.items():
+        log_ret    = ret_scaler.inverse_transform(np.asarray(pred_z).reshape(-1, 1)).ravel()
+        pred_price = prev_close * np.exp(log_ret)
+        mask = ~np.isnan(real_price) & ~np.isnan(pred_price)
+        rp, pp = real_price[mask], pred_price[mask]
+        resultado[modelo] = {
+            "MAE_BRL":  mean_absolute_error(rp, pp),
+            "RMSE_BRL": np.sqrt(mean_squared_error(rp, pp)),
+            "MAPE_BRL": np.mean(np.abs((rp - pp) / rp)) * 100,
+        }
+    return resultado
+
 def run():
     ativos = descobrir_ativos()
     print(f"Ativos encontrados: {ativos}")
@@ -113,8 +144,18 @@ def run():
         dm_lstm_stat, p_lstm     = diebold_mariano_test(y_true, pred_sarimax, pred_lstm)
         dm_hybrid_stat, p_hybrid = diebold_mariano_test(y_true, pred_sarimax, pred_hybrid)
 
+        # 3. Métricas em R$ (reconstrução de preço a partir do retorno previsto)
+        try:
+            precos = metricas_em_reais(
+                name, datas_comuns,
+                {"SARIMAX": pred_sarimax, "LSTM": pred_lstm, "Hibrido": pred_hybrid}
+            )
+        except Exception as e:
+            print(f"    [aviso] não foi possível reconstruir preços em R$: {e}")
+            precos = {}
+
         def registrar(modelo, metricas, dm_stat=None, p_value=None):
-            resultados_finais.append({
+            linha = {
                 "Ativo": name,
                 "Modelo": modelo,
                 "MAE": metricas["MAE"],
@@ -124,8 +165,11 @@ def run():
                 "R2": metricas["R2"],
                 "Hit_Rate": metricas["Hit_Rate"],
                 "DM_Stat_vs_Base": dm_stat,
-                "DM_PValue": p_value
-            })
+                "DM_PValue": p_value,
+            }
+            if modelo in precos:
+                linha.update(precos[modelo])  # MAE_BRL, RMSE_BRL, MAPE_BRL
+            resultados_finais.append(linha)
 
         registrar("SARIMAX", metrics_sarimax) # Baseline
         registrar("LSTM", metrics_lstm, dm_lstm_stat, p_lstm)

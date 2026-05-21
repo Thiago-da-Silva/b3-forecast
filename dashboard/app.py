@@ -163,16 +163,22 @@ if not df_metricas.empty:
     
     df_metricas_view = df_metricas[df_metricas["Ativo"].isin(ativos_selecionados)]
     if not df_metricas_view.empty:
+        col_fmt = {
+            "MAE": "{:.5f}",
+            "RMSE": "{:.5f}",
+            "sMAPE": "{:.2f}%",
+            "Theil_U": "{:.4f}",
+            "R2": "{:.4f}",
+            "Hit_Rate": "{:.2f}%",
+            "MAE_BRL": "R$ {:.2f}",
+            "RMSE_BRL": "R$ {:.2f}",
+            "MAPE_BRL": "{:.2f}%",
+            "DM_Stat_vs_Base": "{:.4f}",
+            "DM_PValue": "{:.5f}",
+        }
+        # Formata apenas colunas presentes (R$ pode faltar se a reconstrução falhar)
+        col_fmt = {k: v for k, v in col_fmt.items() if k in df_metricas_view.columns}
         st.dataframe(
-            df_metricas_view.style.format({
-                "MAE": "{:.5f}",
-                "RMSE": "{:.5f}",
-                "sMAPE": "{:.2f}%",
-                "Theil_U": "{:.4f}",
-                "R2": "{:.4f}",
-                "Hit_Rate": "{:.2f}%",
-                "DM_Stat_vs_Base": "{:.4f}",
-                "DM_PValue": "{:.5f}"
-            }),
+            df_metricas_view.style.format(col_fmt),
             use_container_width=True
         )

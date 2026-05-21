@@ -2,7 +2,7 @@ import pandas as pd
 from pathlib import Path
 import numpy as np
 import pickle
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
+from sklearn.preprocessing import StandardScaler
 
 PROJECT_ROOT  = Path(__file__).resolve().parent.parent
 RAW_DIR       = PROJECT_ROOT / "data" / "raw"
@@ -41,6 +41,14 @@ def process(name):
             df = df.join(col.rename(exog.lower()), how="left")
     df = df.ffill()
 
+    # --- Exógenas estacionárias (evita regressão espúria no SARIMAX) ---
+    # retorno log para índice e câmbio; diferença para a taxa de juros
+    for exog in ("ibov", "usdbrl"):
+        if exog in df.columns:
+            df[exog] = np.log(df[exog] / df[exog].shift(1))
+    if "selic" in df.columns:
+        df["selic"] = df["selic"].diff()
+
     # --- Média Móvel Simples / Simple Moving Average ---
     df["sma_20"] = df["Close"].rolling(20).mean()
     df["sma_50"] = df["Close"].rolling(50).mean()
@@ -74,8 +82,9 @@ def process(name):
 
     features = [col for col in df.columns if col != "log_return"]
 
-    # --- Normalização das features (MinMax, ajustado só no treino) ---
-    scaler       = MinMaxScaler()
+    # --- Normalização das features (StandardScaler, ajustado só no treino).
+    #     MinMax extrapolaria fora de [0,1] no teste para níveis com tendência. ---
+    scaler       = StandardScaler()
     train_scaled = scaler.fit_transform(train[features])
     val_scaled   = scaler.transform(val[features])
     test_scaled  = scaler.transform(test[features])

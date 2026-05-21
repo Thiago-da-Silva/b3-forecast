@@ -10,12 +10,17 @@ st.set_page_config(
     layout="wide"
 )
 
-RESULTS_DIR = Path("evaluation/predictions")
-METRICS_FILE = Path("evaluation/metrics.csv")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+RESULTS_DIR = PROJECT_ROOT / "evaluation" / "predictions"
+METRICS_FILE = PROJECT_ROOT / "evaluation" / "metrics.csv"
 
 @st.cache_data
 def carregar_dados():
-    ativos = ["PETR4", "VALE3", "ITUB4"]
+    # Descobre os ativos a partir dos arquivos de previsão, em vez de fixar a lista
+    ativos = sorted({
+        p.stem.replace("_hybrid_predictions", "")
+        for p in RESULTS_DIR.glob("*_hybrid_predictions.csv")
+    })
     modelos = {
         "SARIMAX": "sarimax",
         "LSTM": "lstm",
@@ -146,7 +151,7 @@ else:
         fig.update_layout(
             title=f"Ativo: {ativo}",
             xaxis_title="Data",
-            yaxis_title="Retorno Logarítmico",
+            yaxis_title="Retorno log (padronizado)",
             hovermode="x unified"
         )
         st.plotly_chart(fig, use_container_width=True)

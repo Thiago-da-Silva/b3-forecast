@@ -37,3 +37,7 @@ def run():
     df_selic.to_csv(selic_path, index_label="Date")
     print(f"  Salvo: {selic_path} ({len(df_selic)} linhas)")
 
+
+if __name__ == "__main__":
+    run()
+

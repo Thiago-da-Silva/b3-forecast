@@ -119,3 +119,7 @@ def run():
         salvar_modelo(modelo, name)
         salvar_previsoes(name, train, val, test, modelo)
         print(f"  Concluído: {name}")
+
+
+if __name__ == "__main__":
+    run()

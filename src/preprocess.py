@@ -109,3 +109,7 @@ def process(name):
     print(f"    Scalers salvos: {name}_scaler.pkl, {name}_ret_scaler.pkl")
 
 
+if __name__ == "__main__":
+    run()
+
+

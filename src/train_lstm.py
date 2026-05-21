@@ -161,7 +161,7 @@ def run():
     print(f"Ativos encontrados: {ativos}")
 
     # Salva os parâmetros base para referência futura no dashboard ou métricas
-    params_path = ARTIFACTS_DIR / "lstm_best_params.json"
+    params_path = ARTIFACTS_DIR / "lstm_params.json"
     with open(params_path, "w") as f:
         json.dump({"lookback": LOOKBACK, "epochs": EPOCHS, "batch_size": BATCH_SIZE}, f)
 

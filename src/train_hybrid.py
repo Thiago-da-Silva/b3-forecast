@@ -27,7 +27,7 @@ RESIDUALS_DIR = PROJECT_ROOT / "evaluation" / "residuals"
 
 # Reutilizando hiperparâmetros base
 try:
-    with open(ARTIFACTS_DIR / "lstm_best_params.json", "r") as f:
+    with open(ARTIFACTS_DIR / "lstm_params.json", "r") as f:
         params = json.load(f)
         LOOKBACK = params.get("lookback", 30)
         EPOCHS = params.get("epochs", 300)

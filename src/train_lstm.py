@@ -1,4 +1,5 @@
 import os
+import sys
 import random
 import pandas as pd
 import numpy as np
@@ -19,17 +20,20 @@ from tensorflow.keras.layers import LSTM, Dense, Dropout, Input
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 from tensorflow.keras.optimizers import Adam
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import config
+
 PROJECT_ROOT  = Path(__file__).resolve().parent.parent
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
 RESULTS_DIR   = PROJECT_ROOT / "evaluation" / "predictions"
 
-# Hiperparâmetros base
-LOOKBACK = 30 # Tamanho da janela (dias)
-EPOCHS = 300
-BATCH_SIZE = 32
+# Hiperparâmetros base (centralizados em config.py)
+LOOKBACK   = config.LOOKBACK   # tamanho da janela (dias)
+EPOCHS     = config.EPOCHS
+BATCH_SIZE = config.BATCH_SIZE
 
-TARGET_COL = "log_return"
+TARGET_COL = config.TARGET_COL
 
 def descobrir_ativos():
     ativos = []
@@ -63,9 +67,9 @@ def carregar_e_formatar(name):
 
     # Divisão 70/15/15 mantendo a consistência com as outras etapas
     n = len(df)
-    train_df = df.iloc[:int(n * 0.70)]
-    val_df   = df.iloc[int(n * 0.70):int(n * 0.85)]
-    test_df  = df.iloc[int(n * 0.85):]
+    train_df = df.iloc[:int(n * config.TRAIN_END)]
+    val_df   = df.iloc[int(n * config.TRAIN_END):int(n * config.VAL_END)]
+    test_df  = df.iloc[int(n * config.VAL_END):]
 
     # Criação de sequências.
     # Val e test são prefixados com os últimos LOOKBACK dias do split anterior:

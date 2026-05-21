@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 import pandas as pd
 import numpy as np
@@ -5,13 +6,13 @@ import pickle
 from pmdarima import auto_arima
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import config
+
 PROJECT_ROOT  = Path(__file__).resolve().parent.parent
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
 RESULTS_DIR   = PROJECT_ROOT / "evaluation" / "predictions"
-
-EXOGENOUS_COLS = ["ibov", "usdbrl", "selic"]
-TARGET_COL     = "log_return"
 
 def descobrir_ativos():
     ativos = []
@@ -28,15 +29,15 @@ def carregar_splits(name):
     )
 
     n     = len(df)
-    train = df.iloc[:int(n * 0.70)]
-    val   = df.iloc[int(n * 0.70):int(n * 0.85)]
-    test  = df.iloc[int(n * 0.85):]
+    train = df.iloc[:int(n * config.TRAIN_END)]
+    val   = df.iloc[int(n * config.TRAIN_END):int(n * config.VAL_END)]
+    test  = df.iloc[int(n * config.VAL_END):]
 
     return train, val, test
 
 def separar_xy(split):
-    y    = split[TARGET_COL]
-    exog = split[EXOGENOUS_COLS]
+    y    = split[config.TARGET_COL]
+    exog = split[config.EXOGENOUS_COLS]
     return y, exog
 
 def treinar(name, train):

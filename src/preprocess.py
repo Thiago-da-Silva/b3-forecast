@@ -1,20 +1,23 @@
+import sys
 import pandas as pd
 from pathlib import Path
 import numpy as np
 import pickle
 from sklearn.preprocessing import StandardScaler
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import config
+
 PROJECT_ROOT  = Path(__file__).resolve().parent.parent
 RAW_DIR       = PROJECT_ROOT / "data" / "raw"
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
-EXOGENOUS = ["IBOV", "USDBRL", "SELIC"]
 
 def find_stocks():
     stocks = []
     for path in RAW_DIR.glob("*_raw.csv"):
         name = path.stem.replace("_raw", "")
-        if name not in EXOGENOUS:
+        if name not in config.EXOGENOUS:
             stocks.append(name)
     return stocks
 
@@ -34,7 +37,7 @@ def process(name):
     df["log_return"] = np.log(df["Close"] / df["Close"].shift(1))
 
     # --- Variáveis exógenas ---
-    for exog in EXOGENOUS:
+    for exog in config.EXOGENOUS:
         path = RAW_DIR / f"{exog}_raw.csv"
         if path.exists():
             col = pd.read_csv(path, index_col="Date", parse_dates=True)["Close"]
@@ -76,9 +79,9 @@ def process(name):
 
     # --- Split cronológico 70/15/15 ---
     n     = len(df)
-    train = df.iloc[:int(n * 0.70)]
-    val   = df.iloc[int(n * 0.70):int(n * 0.85)]
-    test  = df.iloc[int(n * 0.85):]
+    train = df.iloc[:int(n * config.TRAIN_END)]
+    val   = df.iloc[int(n * config.TRAIN_END):int(n * config.VAL_END)]
+    test  = df.iloc[int(n * config.VAL_END):]
 
     features = [col for col in df.columns if col != "log_return"]
 

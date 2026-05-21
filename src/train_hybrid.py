@@ -1,4 +1,5 @@
 import os
+import sys
 import random
 import pandas as pd
 import numpy as np
@@ -19,23 +20,26 @@ from tensorflow.keras.layers import LSTM, Dense, Dropout, Input
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 from tensorflow.keras.optimizers import Adam
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import config
+
 PROJECT_ROOT  = Path(__file__).resolve().parent.parent
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
 RESULTS_DIR   = PROJECT_ROOT / "evaluation" / "predictions"
 RESIDUALS_DIR = PROJECT_ROOT / "evaluation" / "residuals"
 
-# Reutilizando hiperparâmetros base
+# Reutilizando hiperparâmetros base (defaults centralizados em config.py)
 try:
     with open(ARTIFACTS_DIR / "lstm_params.json", "r") as f:
         params = json.load(f)
-        LOOKBACK = params.get("lookback", 30)
-        EPOCHS = params.get("epochs", 300)
-        BATCH_SIZE = params.get("batch_size", 32)
+        LOOKBACK = params.get("lookback", config.LOOKBACK)
+        EPOCHS = params.get("epochs", config.EPOCHS)
+        BATCH_SIZE = params.get("batch_size", config.BATCH_SIZE)
 except FileNotFoundError:
-    LOOKBACK = 30
-    EPOCHS = 300
-    BATCH_SIZE = 32
+    LOOKBACK = config.LOOKBACK
+    EPOCHS = config.EPOCHS
+    BATCH_SIZE = config.BATCH_SIZE
 
 def descobrir_ativos():
     ativos = []

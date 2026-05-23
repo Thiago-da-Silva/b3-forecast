@@ -87,12 +87,12 @@ def carregar_e_formatar(name):
 def construir_modelo(input_shape):
     modelo = Sequential([
         Input(shape=input_shape),
-        LSTM(32, return_sequences=False),
+        LSTM(16, return_sequences=False),
         Dropout(0.2),
         Dense(1) # Saída é o log_return
     ])
     
-    modelo.compile(optimizer=Adam(learning_rate=1e-3), loss='mse', metrics=['mae'])
+    modelo.compile(optimizer=Adam(learning_rate=5e-4), loss='mse', metrics=['mae'])
     return modelo
 
 def treinar(name, X_train, y_train, X_val, y_val):

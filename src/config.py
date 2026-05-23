@@ -6,7 +6,7 @@ LOOKBACK divirjam entre os arquivos — um bug silencioso e difícil de achar.
 
 # --- Coleta de dados ---
 START_DATE = "2019-01-01"
-END_DATE   = "2024-12-31"
+END_DATE   = "2026-05-22"
 TICKERS = {
     "PETR4":  "PETR4.SA",
     "VALE3":  "VALE3.SA",
@@ -27,6 +27,6 @@ TRAIN_END = 0.70
 VAL_END   = 0.85
 
 # --- Hiperparâmetros base do LSTM / Híbrido ---
-LOOKBACK   = 30
+LOOKBACK   = 45
 EPOCHS     = 300
 BATCH_SIZE = 32

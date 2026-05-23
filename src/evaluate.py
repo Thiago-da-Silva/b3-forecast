@@ -48,7 +48,7 @@ def diebold_mariano_test(y_true, y_pred1, y_pred2):
 
     return dm_stat, p_value
 
-def calculate_metrics(y_true, y_pred):
+def calculate_metrics(y_true, y_pred, y_true_unscaled=None, y_pred_unscaled=None):
     mae = mean_absolute_error(y_true, y_pred)
     rmse = np.sqrt(mean_squared_error(y_true, y_pred))
 
@@ -58,14 +58,17 @@ def calculate_metrics(y_true, y_pred):
     ) * 100
 
     # Theil's U — desempenho relativo ao naive (prever retorno zero).
-    # U < 1 supera o naive, U = 1 é equivalente, U > 1 é pior.
     denom = np.sqrt(np.mean(y_true ** 2))
     theil_u = np.sqrt(np.mean((y_true - y_pred) ** 2)) / denom if denom != 0 else np.nan
 
     r2 = r2_score(y_true, y_pred)
 
     # Hit Rate direcional — % de dias em que o modelo acertou a direção do movimento
-    hit_rate = np.mean(np.sign(y_true) == np.sign(y_pred)) * 100
+    # Usa os valores despadronizados (se fornecidos) para ver a direção real em relação a 0
+    if y_true_unscaled is not None and y_pred_unscaled is not None:
+        hit_rate = np.mean(np.sign(y_true_unscaled) == np.sign(y_pred_unscaled)) * 100
+    else:
+        hit_rate = np.mean(np.sign(y_true) == np.sign(y_pred)) * 100
 
     return {
         "MAE": mae, "RMSE": rmse, "sMAPE": smape,
@@ -131,10 +134,19 @@ def run():
         pred_hybrid  = test_hybrid.loc[datas_comuns, "hybrid"].values
         pred_lstm    = test_lstm.loc[datas_comuns, "lstm"].values
 
+        # Despadronizar para calcular a direção correta (Hit Rate)
+        with open(ARTIFACTS_DIR / f"{name}_ret_scaler.pkl", "rb") as f:
+            ret_scaler = pickle.load(f)
+            
+        y_true_unscaled = ret_scaler.inverse_transform(y_true.reshape(-1, 1)).ravel()
+        pred_sarimax_unscaled = ret_scaler.inverse_transform(pred_sarimax.reshape(-1, 1)).ravel()
+        pred_hybrid_unscaled = ret_scaler.inverse_transform(pred_hybrid.reshape(-1, 1)).ravel()
+        pred_lstm_unscaled = ret_scaler.inverse_transform(pred_lstm.reshape(-1, 1)).ravel()
+
         # 1. Métricas Base
-        metrics_sarimax = calculate_metrics(y_true, pred_sarimax)
-        metrics_lstm    = calculate_metrics(y_true, pred_lstm)
-        metrics_hybrid  = calculate_metrics(y_true, pred_hybrid)
+        metrics_sarimax = calculate_metrics(y_true, pred_sarimax, y_true_unscaled, pred_sarimax_unscaled)
+        metrics_lstm    = calculate_metrics(y_true, pred_lstm, y_true_unscaled, pred_lstm_unscaled)
+        metrics_hybrid  = calculate_metrics(y_true, pred_hybrid, y_true_unscaled, pred_hybrid_unscaled)
         
         # 2. Teste Diebold-Mariano (Comparação Par a Par - Base Sarimax)
         # Queremos saber se LSTM e Hybrid são ESTATISTICAMENTE melhores que o baseline (Sarimax)

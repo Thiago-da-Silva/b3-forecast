@@ -1,1 +1,1 @@
-{"lookback": 30, "epochs": 50, "batch_size": 32}
+{"lookback": 30, "epochs": 300, "batch_size": 32}

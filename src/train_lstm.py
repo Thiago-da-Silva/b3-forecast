@@ -28,12 +28,17 @@ PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
 RESULTS_DIR   = PROJECT_ROOT / "evaluation" / "predictions"
 
-# Hiperparâmetros base (centralizados em config.py)
-LOOKBACK   = config.LOOKBACK   # tamanho da janela (dias)
 EPOCHS     = config.EPOCHS
 BATCH_SIZE = config.BATCH_SIZE
-
 TARGET_COL = config.TARGET_COL
+
+def _carregar_params(name):
+    params_path = ARTIFACTS_DIR / f"{name}_best_params.json"
+    if params_path.exists():
+        with open(params_path, "r") as f:
+            p = json.load(f)
+            return p.get("lookback", config.LOOKBACK), p.get("units", 64), p.get("dropout", 0.2), p.get("lr", 1e-3)
+    return config.LOOKBACK, 64, 0.2, 1e-3
 
 def descobrir_ativos():
     ativos = []
@@ -43,11 +48,6 @@ def descobrir_ativos():
     return sorted(ativos)
 
 def criar_sequencias(df, target_col_idx, lookback):
-    """
-    Transforma dados 2D em 3D para o LSTM.
-    X formato: (amostras, lookback, features)
-    y formato: (amostras,)
-    """
     data = df.values
     X, y = [], []
     for i in range(lookback, len(data)):
@@ -55,69 +55,90 @@ def criar_sequencias(df, target_col_idx, lookback):
         y.append(data[i, target_col_idx])
     return np.array(X), np.array(y)
 
-def carregar_e_formatar(name):
-    df = pd.read_csv(
-        PROCESSED_DIR / f"{name}_processed.csv",
-        index_col="Date",
-        parse_dates=True
-    )
-    
-    # Precisamos do índice da coluna target
+def carregar_e_formatar(name, lookback):
+    df = pd.read_csv(PROCESSED_DIR / f"{name}_processed.csv", index_col="Date", parse_dates=True)
     target_idx = df.columns.get_loc(TARGET_COL)
 
-    # Divisão 70/15/15 mantendo a consistência com as outras etapas
     n = len(df)
     train_df = df.iloc[:int(n * config.TRAIN_END)]
     val_df   = df.iloc[int(n * config.TRAIN_END):int(n * config.VAL_END)]
     test_df  = df.iloc[int(n * config.VAL_END):]
 
-    # Criação de sequências.
-    # Val e test são prefixados com os últimos LOOKBACK dias do split anterior:
-    # evita descartar os primeiros LOOKBACK dias de avaliação e preserva a
-    # continuidade temporal real entre os splits.
-    val_com_prefixo  = pd.concat([train_df.iloc[-LOOKBACK:], val_df])
-    test_com_prefixo = pd.concat([val_df.iloc[-LOOKBACK:],  test_df])
+    val_com_prefixo  = pd.concat([train_df.iloc[-lookback:], val_df])
+    test_com_prefixo = pd.concat([val_df.iloc[-lookback:],  test_df])
 
-    X_train, y_train = criar_sequencias(train_df, target_idx, LOOKBACK)
-    X_val, y_val     = criar_sequencias(val_com_prefixo, target_idx, LOOKBACK)
-    X_test, y_test   = criar_sequencias(test_com_prefixo, target_idx, LOOKBACK)
+    X_train, y_train = criar_sequencias(train_df, target_idx, lookback)
+    X_val, y_val     = criar_sequencias(val_com_prefixo, target_idx, lookback)
+    X_test, y_test   = criar_sequencias(test_com_prefixo, target_idx, lookback)
 
     return (X_train, y_train), (X_val, y_val), (X_test, y_test), (train_df, val_df, test_df)
 
-def construir_modelo(input_shape):
+def construir_modelo(input_shape, units=64, dropout=0.2):
     modelo = Sequential([
         Input(shape=input_shape),
-        LSTM(16, return_sequences=False),
-        Dropout(0.2),
-        Dense(1) # Saída é o log_return
+        LSTM(units, return_sequences=True),
+        Dropout(dropout),
+        LSTM(units // 2, return_sequences=False),
+        Dropout(dropout),
+        Dense(16, activation="relu"),
+        Dense(1)
     ])
-    
-    modelo.compile(optimizer=Adam(learning_rate=5e-4), loss='mse', metrics=['mae'])
+    modelo.compile(optimizer=Adam(learning_rate=1e-3), loss='mse', metrics=['mae'])
     return modelo
 
 def treinar(name, X_train, y_train, X_val, y_val):
     print(f"    Treinando rede neural para {name}...")
-    
-    modelo = construir_modelo((X_train.shape[1], X_train.shape[2]))
-    
+
+    # Carregar hiperparâmetros tunados se existirem
+    params_path = ARTIFACTS_DIR / f"{name}_best_params.json"
+    if params_path.exists():
+        with open(params_path) as f:
+            p = json.load(f)
+        units   = p.get("units",   64)
+        dropout = p.get("dropout", 0.2)
+        lr      = p.get("lr",      1e-3)
+        print(f"    Usando hiperparâmetros tunados: units={units}, dropout={dropout}, lr={lr}")
+    else:
+        units   = 64
+        dropout = 0.2
+        lr      = 1e-3
+        print(f"    Sem params tunados — usando defaults")
+
+    modelo = construir_modelo((X_train.shape[1], X_train.shape[2]), units, dropout)
+    modelo.optimizer.learning_rate.assign(lr)
+
     callbacks = [
-        EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True, min_delta=1e-6),
-        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=7, min_lr=1e-6, min_delta=1e-6)
+        EarlyStopping(monitor='val_loss', patience=30, restore_best_weights=True, min_delta=1e-6),
+        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=10, min_lr=1e-6, min_delta=1e-6)
     ]
 
-    history = modelo.fit(
+    # Balanceamento de classes por direção (Alta vs Baixa)
+    pos_mask = y_train > 0
+    neg_mask = y_train <= 0
+    pos_count = np.sum(pos_mask)
+    neg_count = np.sum(neg_mask)
+    total = len(y_train)
+
+    weight_pos = total / (2.0 * pos_count) if pos_count > 0 else 1.0
+    weight_neg = total / (2.0 * neg_count) if neg_count > 0 else 1.0
+
+    sample_weights = np.ones_like(y_train)
+    sample_weights[pos_mask] = weight_pos
+    sample_weights[neg_mask] = weight_neg
+
+    modelo.fit(
         X_train, y_train,
+        sample_weight=sample_weights,
         validation_data=(X_val, y_val),
         epochs=EPOCHS,
         batch_size=BATCH_SIZE,
         callbacks=callbacks,
-        verbose=0 # Deixar no 0 para não sujar o terminal; mostrará apenas o resumo abaixo
+        verbose=0
     )
-    
-    # Avaliação no conjunto de validação
+
     val_loss, val_mae = modelo.evaluate(X_val, y_val, verbose=0)
     print(f"    Validação — MAE: {val_mae:.5f}  MSE: {val_loss:.5f}")
-    
+
     return modelo
 
 def salvar_modelo(modelo, name):
@@ -126,7 +147,7 @@ def salvar_modelo(modelo, name):
     modelo.save(path)
     print(f"    Modelo salvo: {path}")
 
-def salvar_previsoes(name, modelo, X_train, X_val, X_test, dfs):
+def salvar_previsoes(name, modelo, X_train, X_val, X_test, dfs, lookback):
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     train_df, val_df, test_df = dfs
     
@@ -134,9 +155,7 @@ def salvar_previsoes(name, modelo, X_train, X_val, X_test, dfs):
     pred_val   = modelo.predict(X_val, verbose=0).flatten()
     pred_test  = modelo.predict(X_test, verbose=0).flatten()
     
-    # Treino perde os primeiros LOOKBACK dias (não há split anterior para prefixar).
-    # Val e test foram prefixados, então cobrem todas as suas datas.
-    real_train = train_df.iloc[LOOKBACK:][TARGET_COL].values
+    real_train = train_df.iloc[lookback:][TARGET_COL].values
     real_val   = val_df[TARGET_COL].values
     real_test  = test_df[TARGET_COL].values
 
@@ -148,7 +167,7 @@ def salvar_previsoes(name, modelo, X_train, X_val, X_test, dfs):
                     ["test"]  * len(real_test))
     })
 
-    datas_train = train_df.index[LOOKBACK:]
+    datas_train = train_df.index[lookback:]
     datas_val   = val_df.index
     datas_test  = test_df.index
     df_result.index = datas_train.append(datas_val).append(datas_test)
@@ -161,17 +180,13 @@ def run():
     ativos = descobrir_ativos()
     print(f"Ativos encontrados: {ativos}")
 
-    # Salva os parâmetros base para referência futura no dashboard ou métricas
-    params_path = ARTIFACTS_DIR / "lstm_params.json"
-    with open(params_path, "w") as f:
-        json.dump({"lookback": LOOKBACK, "epochs": EPOCHS, "batch_size": BATCH_SIZE}, f)
-
     for name in ativos:
         print(f"\n  Treinando LSTM — {name}...")
-        (X_train, y_train), (X_val, y_val), (X_test, y_test), dfs = carregar_e_formatar(name)
+        lookback, _, _, _ = _carregar_params(name)
+        (X_train, y_train), (X_val, y_val), (X_test, y_test), dfs = carregar_e_formatar(name, lookback)
         modelo = treinar(name, X_train, y_train, X_val, y_val)
         salvar_modelo(modelo, name)
-        salvar_previsoes(name, modelo, X_train, X_val, X_test, dfs)
+        salvar_previsoes(name, modelo, X_train, X_val, X_test, dfs, lookback)
         print(f"  Concluído: {name}")
 
 if __name__ == "__main__":
